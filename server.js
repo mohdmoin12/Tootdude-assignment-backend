@@ -1,127 +1,219 @@
-require('dotenv').config();
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
+const mongoose = require('mongoose');
+require('dotenv').config();
 
-// Initialize Express
 const app = express();
-
-// ======================
-// Enhanced CORS Configuration (Matching your original setup)
-// ======================
-const allowedOrigins = [
-  "https://aum-pharma-frontend.techbv.in",
-  "https://aum-pharma.techbv.in",
-  "http://localhost:3001",
-  "http://localhost:3000",
-  "http://localhost:3002",
-  "https://aumpharma.techbv.in",
-  "https://aumpharmacy.com",
-  "https://www.aumpharmacy.com",
-  "https://*.aumpharmacy.com",
-  "https://tootdude-assignment-frontend-9idc.vercel.app",
-];
-
-const corsOptions = {
-  origin: (origin, callback) => {
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
-};
-
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // Preflight requests
-
-// ======================
-// Middleware
-// ======================
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
-
-// Request Logger
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  next();
-});
-
-// ======================
-// MongoDB Connection
-// ======================
-const connectDB = async () => {
-  try {
-    console.log('Connecting to MongoDB Atlas...');
-    await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      retryWrites: true,
-      w: 'majority'
-    });
-    console.log('✅ MongoDB Atlas Connected');
-  } catch (err) {
-    console.error('❌ MongoDB Connection Error:', err.message);
-    process.exit(1);
-  }
-};
-
-// ======================
-// Routes
-// ======================
-// Health Check
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    dbStatus: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
-
-// Add your actual routes here
-// app.use('/api/progress', require('./routes/progress'));
-
-// ======================
-// Error Handling
-// ======================
-// 404 Handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not Found' });
-});
-
-// Global Error Handler (Enhanced with CORS error handling)
-app.use((err, req, res, next) => {
-  // Handle CORS errors specifically
-  if (err.message === "Not allowed by CORS") {
-    return res.status(403).json({
-      error: 'CORS Error',
-      message: 'Origin not allowed by CORS policy'
-    });
-  }
-
-  console.error(err.stack);
-  res.status(500).json({
-    error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'production' ? 'Something went wrong' : err.message
-  });
-});
-
-// ======================
-// Server Startup
-// ======================
 const PORT = process.env.PORT || 5000;
 
-const startServer = async () => {
-  await connectDB();
-  
-  app.listen(PORT, () => {
-    console.log('\n=== Server Started ===');
-    console.log(`🚀 Port: ${PORT}`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 CORS Origins: ${allowedOrigins.length} allowed origins`);
-    console.log(`🗄️ Database: ${mongoose.connection.host.includes('mongodb.net') ? 'MongoDB Atlas' : 'Local MongoDB'}`);
-  });
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// MongoDB connection (optional - can use JSON file for demo)
+const connectDB = async () => {
+  try {
+    if (process.env.MONGODB_URI) {
+      await mongoose.connect(process.env.MONGODB_URI);
+      console.log('MongoDB connected');
+    } else {
+      console.log('Using in-memory storage (no MongoDB URI provided)');
+    }
+  } catch (error) {
+    console.error('Database connection error:', error);
+  }
 };
 
-startServer();
+// In-memory storage for demo (replace with MongoDB in production)
+let progressData = {};
+
+// Video Progress Schema (for MongoDB)
+const progressSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
+  videoId: { type: String, required: true },
+  intervals: [{
+    start: Number,
+    end: Number
+  }],
+  lastWatchedPosition: { type: Number, default: 0 },
+  progress: { type: Number, default: 0 },
+  videoDuration: { type: Number, required: true },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+const Progress = mongoose.models.Progress || mongoose.model('Progress', progressSchema);
+
+// Utility functions
+function mergeIntervals(intervals) {
+  if (!intervals.length) return [];
+  
+  intervals.sort((a, b) => a.start - b.start);
+  const merged = [intervals[0]];
+  
+  for (let i = 1; i < intervals.length; i++) {
+    const last = merged[merged.length - 1];
+    if (intervals[i].start <= last.end + 1) { // Allow 1 second gap
+      last.end = Math.max(last.end, intervals[i].end);
+    } else {
+      merged.push(intervals[i]);
+    }
+  }
+  
+  return merged;
+}
+
+function calculateProgress(intervals, videoDuration) {
+  const merged = mergeIntervals(intervals);
+  const watchedSeconds = merged.reduce((acc, cur) => acc + (cur.end - cur.start), 0);
+  return Math.min(100, (watchedSeconds / videoDuration) * 100);
+}
+
+// Routes
+
+// Save progress
+app.post('/api/progress', async (req, res) => {
+  try {
+    const { userId, videoId, intervals, videoDuration, currentTime } = req.body;
+    
+    if (!userId || !videoId || !intervals || !videoDuration) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const progress = calculateProgress(intervals, videoDuration);
+    const lastWatchedPosition = currentTime || intervals[intervals.length - 1]?.end || 0;
+
+    if (process.env.MONGODB_URI && mongoose.connection.readyState === 1) {
+      // Use MongoDB
+      const existingProgress = await Progress.findOne({ userId, videoId });
+      
+      if (existingProgress) {
+        // Merge with existing intervals
+        const allIntervals = [...existingProgress.intervals, ...intervals];
+        const mergedIntervals = mergeIntervals(allIntervals);
+        
+        existingProgress.intervals = mergedIntervals;
+        existingProgress.progress = calculateProgress(mergedIntervals, videoDuration);
+        existingProgress.lastWatchedPosition = lastWatchedPosition;
+        existingProgress.updatedAt = new Date();
+        
+        await existingProgress.save();
+      } else {
+        const newProgress = new Progress({
+          userId,
+          videoId,
+          intervals: mergeIntervals(intervals),
+          progress,
+          lastWatchedPosition,
+          videoDuration
+        });
+        
+        await newProgress.save();
+      }
+    } else {
+      // Use in-memory storage
+      const key = `${userId}_${videoId}`;
+      if (progressData[key]) {
+        const allIntervals = [...progressData[key].intervals, ...intervals];
+        const mergedIntervals = mergeIntervals(allIntervals);
+        
+        progressData[key] = {
+          ...progressData[key],
+          intervals: mergedIntervals,
+          progress: calculateProgress(mergedIntervals, videoDuration),
+          lastWatchedPosition,
+          updatedAt: new Date().toISOString()
+        };
+      } else {
+        progressData[key] = {
+          userId,
+          videoId,
+          intervals: mergeIntervals(intervals),
+          progress,
+          lastWatchedPosition,
+          videoDuration,
+          updatedAt: new Date().toISOString()
+        };
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      progress: Math.round(progress * 100) / 100,
+      lastWatchedPosition 
+    });
+  } catch (error) {
+    console.error('Error saving progress:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get progress
+app.get('/api/progress', async (req, res) => {
+  try {
+    const { userId, videoId } = req.query;
+    
+    if (!userId || !videoId) {
+      return res.status(400).json({ error: 'Missing userId or videoId' });
+    }
+
+    let progressRecord = null;
+
+    if (process.env.MONGODB_URI && mongoose.connection.readyState === 1) {
+      // Use MongoDB
+      progressRecord = await Progress.findOne({ userId, videoId });
+    } else {
+      // Use in-memory storage
+      const key = `${userId}_${videoId}`;
+      progressRecord = progressData[key] || null;
+    }
+
+    if (!progressRecord) {
+      return res.json({
+        progress: 0,
+        lastWatchedPosition: 0,
+        intervals: []
+      });
+    }
+
+    res.json({
+      progress: Math.round(progressRecord.progress * 100) / 100,
+      lastWatchedPosition: progressRecord.lastWatchedPosition,
+      intervals: progressRecord.intervals
+    });
+  } catch (error) {
+    console.error('Error fetching progress:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get all user progress (bonus)
+app.get('/api/user/:userId/progress', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    let userProgress = [];
+
+    if (process.env.MONGODB_URI && mongoose.connection.readyState === 1) {
+      userProgress = await Progress.find({ userId });
+    } else {
+      userProgress = Object.values(progressData).filter(p => p.userId === userId);
+    }
+
+    res.json(userProgress);
+  } catch (error) {
+    console.error('Error fetching user progress:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Connect to database and start server
+connectDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+});

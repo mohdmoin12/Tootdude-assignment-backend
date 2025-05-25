@@ -6,125 +6,113 @@ const cors = require('cors');
 // Load environment variables
 dotenv.config();
 
-console.log('🚀 Starting server...');
-console.log('Environment variables loaded');
-console.log('NODE_ENV:', process.env.NODE_ENV);
-console.log('PORT:', process.env.PORT);
-console.log('MONGODB_URI exists:', !!process.env.MONGODB_URI);
-
+// Initialize Express
 const app = express();
 
-// Enhanced CORS configuration - Allow all origins for now
-const corsOptions = {
-  origin: true, // Allow all origins temporarily to fix the issue
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: [
-    'Origin',
-    'X-Requested-With',
-    'Content-Type',
-    'Accept',
-    'Authorization',
-    'Cache-Control',
-    'Pragma'
-  ],
-  optionsSuccessStatus: 200
-};
+// ======================
+//      CORS Setup
+// ======================
+// Allow ALL origins (*) - Simplest way
+app.use(cors());  // Enables CORS for all routes
 
-// Log all incoming requests for debugging
+// (Optional) Explicit CORS configuration
+// app.use(cors({
+//   origin: '*',  // Allow any origin
+//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+//   allowedHeaders: ['Content-Type', 'Authorization'],
+//   credentials: false  // Disable credentials if not needed
+// }));
+
+// Handle preflight requests globally
+app.options('*', cors());
+
+// ======================
+//   Middleware Setup
+// ======================
+// Log all incoming requests (for debugging)
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-  console.log('Origin:', req.headers.origin);
-  console.log('User-Agent:', req.headers['user-agent']);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
 
-// Apply CORS middleware
-app.use(cors(corsOptions));
-
-// Handle preflight requests explicitly
-app.options('*', cors(corsOptions));
-
-// Body parsing middleware
+// Parse JSON and URL-encoded bodies
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging middleware (helpful for debugging)
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url} - Origin: ${req.headers.origin || 'No origin'}`);
-  next();
-});
-
-// Health check endpoint (moved before routes for priority)
+// ======================
+//       Routes
+// ======================
+// Health Check Endpoint
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ 
+  res.status(200).json({
     status: 'OK',
+    message: 'Server is running',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    port: process.env.PORT || 5000
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
-// Routes
-const progressRoutes = require('./routes/progress');
-app.use('/api', progressRoutes);
+// Example API Route
+app.get('/api/greet', (req, res) => {
+  res.json({ message: 'Hello World! 👋' });
+});
 
-// MongoDB Connection
+// ======================
+//   Database Connection
+// ======================
 const connectDB = async () => {
   try {
-    console.log('🔗 Attempting to connect to MongoDB...');
+    console.log('🔐 Connecting to MongoDB...');
     await mongoose.connect(process.env.MONGODB_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
-    console.log('✅ MongoDB connected successfully');
-  } catch (error) {
-    console.error('❌ MongoDB connection error:', error);
+    console.log('✅ MongoDB Connected');
+  } catch (err) {
+    console.error('❌ MongoDB Connection Error:', err.message);
     process.exit(1);
   }
 };
 
-// Error handling middleware
-app.use((error, req, res, next) => {
-  console.error('Server error:', error);
-  res.status(500).json({ 
-    error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
-  });
-});
-
-// 404 handler
-app.use('*', (req, res) => {
-  console.log('404 - Route not found:', req.method, req.originalUrl);
-  res.status(404).json({ 
-    error: 'Route not found',
-    path: req.originalUrl,
+// ======================
+//   Error Handling
+// ======================
+// 404 Handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    path: req.url,
     method: req.method
   });
 });
 
-// Start the server
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error('⚠️ Server Error:', err.stack);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+  });
+});
+
+// ======================
+//     Start Server
+// ======================
 const PORT = process.env.PORT || 5000;
 
-console.log('🔧 Setting up server...');
-console.log('Target PORT:', PORT);
-
-connectDB().then(() => {
-  console.log('🌐 Starting HTTP server...');
+const startServer = async () => {
+  await connectDB();
+  
   app.listen(PORT, '0.0.0.0', () => {
-    console.log('🎉 Server successfully started!');
-    console.log(`📍 Server running on port ${PORT}`);
+    console.log('\n=== Server Started ===');
+    console.log(`🚀 http://localhost:${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
-    
-    if (process.env.NODE_ENV === 'production') {
-      console.log(`🚀 Production URL: https://tootdude-assignment-backend-production.up.railway.app/api/health`);
-    }
-    
-    console.log('✅ Server is ready to accept connections');
+    console.log(`🔄 CORS: Enabled for ALL origins (*)`);
+    console.log(`📊 Health Check: http://localhost:${PORT}/api/health\n`);
   });
-}).catch(error => {
-  console.error('💥 Failed to start server:', error);
-  console.error('Stack trace:', error.stack);
+};
+
+startServer().catch(err => {
+  console.error('💥 Failed to start server:', err);
   process.exit(1);
 });

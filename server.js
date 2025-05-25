@@ -10,7 +10,7 @@ const app = express();
 // Enhanced CORS Configuration
 // ======================
 const corsOptions = {
-  origin:  '*',
+  origin:  "*",
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true

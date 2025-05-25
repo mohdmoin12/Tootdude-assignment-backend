@@ -1,73 +1,49 @@
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-const dotenv = require('dotenv');
 const cors = require('cors');
-
-// Load environment variables
-dotenv.config();
 
 // Initialize Express
 const app = express();
 
 // ======================
-//      CORS Setup
+// Enhanced CORS Configuration
 // ======================
-// Allow ALL origins (*) - Simplest way
-app.use(cors());  // Enables CORS for all routes
+const corsOptions = {
+  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+};
 
-// (Optional) Explicit CORS configuration
-// app.use(cors({
-//   origin: '*',  // Allow any origin
-//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-//   allowedHeaders: ['Content-Type', 'Authorization'],
-//   credentials: false  // Disable credentials if not needed
-// }));
-
-// Handle preflight requests globally
-app.options('*', cors());
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Preflight requests
 
 // ======================
-//   Middleware Setup
+// Middleware
 // ======================
-// Log all incoming requests (for debugging)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Request Logger
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
 
-// Parse JSON and URL-encoded bodies
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 // ======================
-//       Routes
-// ======================
-// Health Check Endpoint
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    message: 'Server is running',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
-
-// Example API Route
-app.get('/api/greet', (req, res) => {
-  res.json({ message: 'Hello World! 👋' });
-});
-
-// ======================
-//   Database Connection
+// MongoDB Connection
 // ======================
 const connectDB = async () => {
   try {
-    console.log('🔐 Connecting to MongoDB...');
+    console.log('Connecting to MongoDB Atlas...');
     await mongoose.connect(process.env.MONGODB_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
+      retryWrites: true,
+      w: 'majority'
     });
-    console.log('✅ MongoDB Connected');
+    console.log('✅ MongoDB Atlas Connected');
   } catch (err) {
     console.error('❌ MongoDB Connection Error:', err.message);
     process.exit(1);
@@ -75,44 +51,52 @@ const connectDB = async () => {
 };
 
 // ======================
-//   Error Handling
+// Routes
+// ======================
+// Health Check
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    dbStatus: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Add your actual routes here
+// app.use('/api/progress', require('./routes/progress'));
+
+// ======================
+// Error Handling
 // ======================
 // 404 Handler
 app.use((req, res) => {
-  res.status(404).json({
-    error: 'Not Found',
-    path: req.url,
-    method: req.method
-  });
+  res.status(404).json({ error: 'Not Found' });
 });
 
 // Global Error Handler
 app.use((err, req, res, next) => {
-  console.error('⚠️ Server Error:', err.stack);
+  console.error(err.stack);
   res.status(500).json({
     error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+    message: process.env.NODE_ENV === 'production' ? 'Something went wrong' : err.message
   });
 });
 
 // ======================
-//     Start Server
+// Server Startup
 // ======================
 const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
   await connectDB();
   
-  app.listen(PORT, '0.0.0.0', () => {
+  app.listen(PORT, () => {
     console.log('\n=== Server Started ===');
-    console.log(`🚀 http://localhost:${PORT}`);
+    console.log(`🚀 Port: ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔄 CORS: Enabled for ALL origins (*)`);
-    console.log(`📊 Health Check: http://localhost:${PORT}/api/health\n`);
+    console.log(`🔗 CORS Origin: ${corsOptions.origin}`);
+    console.log(`🗄️ Database: ${mongoose.connection.host.includes('mongodb.net') ? 'MongoDB Atlas' : 'Local MongoDB'}`);
   });
 };
 
-startServer().catch(err => {
-  console.error('💥 Failed to start server:', err);
-  process.exit(1);
-});
+startServer();

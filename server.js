@@ -7,13 +7,30 @@ const cors = require('cors');
 const app = express();
 
 // ======================
-// Enhanced CORS Configuration
+// Enhanced CORS Configuration (Matching your original setup)
 // ======================
+const allowedOrigins = [
+  "https://aum-pharma-frontend.techbv.in",
+  "https://aum-pharma.techbv.in",
+  "http://localhost:3001",
+  "http://localhost:3000",
+  "http://localhost:3002",
+  "https://aumpharma.techbv.in",
+  "https://aumpharmacy.com",
+  "https://www.aumpharmacy.com",
+  "https://*.aumpharmacy.com",
+  "https://tootdude-assignment-frontend-9idc.vercel.app",
+];
+
 const corsOptions = {
-  origin:  "*",
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  origin: (origin, callback) => {
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
 };
 
 app.use(cors(corsOptions));
@@ -73,8 +90,16 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Not Found' });
 });
 
-// Global Error Handler
+// Global Error Handler (Enhanced with CORS error handling)
 app.use((err, req, res, next) => {
+  // Handle CORS errors specifically
+  if (err.message === "Not allowed by CORS") {
+    return res.status(403).json({
+      error: 'CORS Error',
+      message: 'Origin not allowed by CORS policy'
+    });
+  }
+
   console.error(err.stack);
   res.status(500).json({
     error: 'Internal Server Error',
@@ -94,7 +119,7 @@ const startServer = async () => {
     console.log('\n=== Server Started ===');
     console.log(`🚀 Port: ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 CORS Origin: ${corsOptions.origin}`);
+    console.log(`🔗 CORS Origins: ${allowedOrigins.length} allowed origins`);
     console.log(`🗄️ Database: ${mongoose.connection.host.includes('mongodb.net') ? 'MongoDB Atlas' : 'Local MongoDB'}`);
   });
 };

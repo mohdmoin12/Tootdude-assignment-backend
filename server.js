@@ -6,41 +6,17 @@ const cors = require('cors');
 // Load environment variables
 dotenv.config();
 
+console.log('🚀 Starting server...');
+console.log('Environment variables loaded');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('PORT:', process.env.PORT);
+console.log('MONGODB_URI exists:', !!process.env.MONGODB_URI);
+
 const app = express();
 
-// Enhanced CORS configuration
+// Enhanced CORS configuration - Allow all origins for now
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:5173', // Vite dev server
-      'http://localhost:5174',
-      'https://localhost:3000',
-      'https://localhost:5173',
-      'https://localhost:5174',
-      // Add your production frontend domains here
-      'https://your-frontend-domain.vercel.app',
-      'https://your-frontend-domain.netlify.app',
-      // Add any other domains where your frontend is hosted
-    ];
-    
-    console.log('Request origin:', origin);
-    
-    // For development, allow all origins (you can make this stricter in production)
-    if (process.env.NODE_ENV !== 'production') {
-      return callback(null, true);
-    }
-    
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true, // Allow all origins temporarily to fix the issue
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: [
@@ -54,6 +30,14 @@ const corsOptions = {
   ],
   optionsSuccessStatus: 200
 };
+
+// Log all incoming requests for debugging
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  console.log('Origin:', req.headers.origin);
+  console.log('User-Agent:', req.headers['user-agent']);
+  next();
+});
 
 // Apply CORS middleware
 app.use(cors(corsOptions));
@@ -88,13 +72,14 @@ app.use('/api', progressRoutes);
 // MongoDB Connection
 const connectDB = async () => {
   try {
+    console.log('🔗 Attempting to connect to MongoDB...');
     await mongoose.connect(process.env.MONGODB_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
-    console.log('MongoDB connected successfully');
+    console.log('✅ MongoDB connected successfully');
   } catch (error) {
-    console.error('MongoDB connection error:', error);
+    console.error('❌ MongoDB connection error:', error);
     process.exit(1);
   }
 };
@@ -121,16 +106,25 @@ app.use('*', (req, res) => {
 // Start the server
 const PORT = process.env.PORT || 5000;
 
+console.log('🔧 Setting up server...');
+console.log('Target PORT:', PORT);
+
 connectDB().then(() => {
+  console.log('🌐 Starting HTTP server...');
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`Health check: http://localhost:${PORT}/api/health`);
+    console.log('🎉 Server successfully started!');
+    console.log(`📍 Server running on port ${PORT}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
+    
     if (process.env.NODE_ENV === 'production') {
-      console.log(`Production URL: https://tootdude-assignment-backend-production.up.railway.app/api/health`);
+      console.log(`🚀 Production URL: https://tootdude-assignment-backend-production.up.railway.app/api/health`);
     }
+    
+    console.log('✅ Server is ready to accept connections');
   });
 }).catch(error => {
-  console.error('Failed to start server:', error);
+  console.error('💥 Failed to start server:', error);
+  console.error('Stack trace:', error.stack);
   process.exit(1);
 });
